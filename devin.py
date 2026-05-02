@@ -397,6 +397,147 @@ BATCH_CARD = {"number": "4549240640456853", "expiry": "01/31", "cvc": "127"}
 BATCH_NAME = "Turab Coder"
 
 # ═══════════════════════════════════════════════════════════════
+# hCAPTCHA HANDLER
+# ═══════════════════════════════════════════════════════════════
+async def handle_hcaptcha(page, idx=0, max_wait=60):
+    """
+    Robust hCaptcha handler with multiple strategies
+    
+    Args:
+        page: Playwright page object
+        idx: Tab index for logging
+        max_wait: Maximum time to wait for captcha (seconds)
+    
+    Returns:
+        bool: True if captcha was handled successfully
+    """
+    import asyncio
+    
+    captcha_handled = False
+    
+    try:
+        # Bring page to front
+        await page.bring_to_front()
+        await asyncio.sleep(1)
+        
+        # Strategy 1: Look for hCaptcha in main frame first
+        hcaptcha_selectors = [
+            '.hcaptcha-checkbox',
+            'label[title*="hCaptcha"]',
+            'div.hcaptcha-holder',
+            'iframe[src*="hcaptcha.com"]',
+            'span:text("I am human")',
+            'label:text("I am human")',
+            'div:text("I am human")',
+        ]
+        
+        for selector in hcaptcha_selectors:
+            try:
+                element = await page.wait_for_selector(selector, timeout=3000)
+                if element:
+                    await element.click()
+                    print(f"  Tab {idx:02d}: ✅ hCaptcha clicked (main frame)")
+                    captcha_handled = True
+                    break
+            except:
+                continue
+        
+        # Strategy 2: Try iframe approach
+        if not captcha_handled:
+            try:
+                # Wait for hCaptcha iframe
+                hcaptcha_frame = await page.wait_for_selector(
+                    'iframe[src*="hcaptcha.com"], iframe[title*="hCaptcha"], iframe[name*="hcaptcha"]',
+                    timeout=5000
+                )
+                
+                if hcaptcha_frame:
+                    frame = await hcaptcha_frame.content_frame()
+                    if frame:
+                        # Multiple selectors for the checkbox
+                        checkbox_selectors = [
+                            'label:has-text("I am human")',
+                            'div:has-text("I am human")',
+                            'input[type="checkbox"]',
+                            '.checkbox-wrapper label',
+                            '#anchor',
+                        ]
+                        
+                        for selector in checkbox_selectors:
+                            try:
+                                checkbox = await frame.wait_for_selector(selector, timeout=2000)
+                                if checkbox:
+                                    await checkbox.click()
+                                    print(f"  Tab {idx:02d}: ✅ hCaptcha clicked (iframe)")
+                                    captcha_handled = True
+                                    break
+                            except:
+                                continue
+            except Exception as e:
+                print(f"  Tab {idx:02d}: ⚠️ Iframe strategy failed: {e}")
+        
+        # Strategy 3: Try locating by text content
+        if not captcha_handled:
+            try:
+                # Use locator with text
+                human_label = page.locator('text="I am human"').first
+                if await human_label.count() > 0:
+                    await human_label.click(timeout=3000)
+                    print(f"  Tab {idx:02d}: ✅ hCaptcha clicked (text locator)")
+                    captcha_handled = True
+            except:
+                pass
+        
+        # Strategy 4: Try challenge API detection
+        if not captcha_handled:
+            try:
+                # Check if challenge is already solved
+                await page.wait_for_function(
+                    "() => document.querySelector('iframe[src*=\\'hcaptcha.com\\']') === null",
+                    timeout=5000
+                )
+                print(f"  Tab {idx:02d}: ✅ hCaptcha already solved or disappeared")
+                captcha_handled = True
+            except:
+                pass
+                
+    except Exception as e:
+        print(f"  Tab {idx:02d}: ❌ hCaptcha handler error: {e}")
+    
+    # Wait for verification completion
+    if captcha_handled:
+        print(f"  Tab {idx:02d}: ⏳ Waiting for hCaptcha verification...")
+        
+        # Dynamic wait - check for success indicators
+        for i in range(max_wait):
+            try:
+                # Check for success tokens or iframe disappearance
+                success_indicators = [
+                    await page.query_selector('textarea[name="h-captcha-response"]'),
+                    await page.query_selector('iframe[src*="hcaptcha.com"][style*="display: none"]'),
+                ]
+                
+                if any(success_indicators):
+                    print(f"  Tab {idx:02d}: ✅ hCaptcha verified!")
+                    break
+                    
+                # Check for error/retry
+                retry_button = await page.query_selector('text="Retry", text="Try Again"')
+                if retry_button:
+                    print(f"  Tab {idx:02d}: ⚠️ Retry required")
+                    break
+                    
+            except:
+                pass
+            
+            await asyncio.sleep(1)
+        else:
+            print(f"  Tab {idx:02d}: ⚠️ hCaptcha verification timeout")
+    
+    return captcha_handled
+
+
+# ═══════════════════════════════════════════════════════════════
 # CORE FUNCTIONS (MODIFIED FOR YOUR EXACT NEED)
 # ═══════════════════════════════════════════════════════════════
 async def connect_or_launch_brave_cdp(p, first_url=None):
@@ -763,45 +904,44 @@ async def process_single_checkout(browser, line, idx, total):
     await autofill_checkout_tab(page, idx)
     await page.wait_for_timeout(random.randint(15, 30) * 1000)
 
-    captcha_clicked = False
-    try:
-        await page.bring_to_front()
-    except:
-        pass
-
-    for attempt in range(1, 4):
-        for frame in page.frames:
-            for selector in ['#recaptcha-anchor', '.recaptcha-checkbox-border', '[role="checkbox"]', '#checkbox', 'input[type="checkbox"]']:
-                try:
-                    captcha_box = frame.locator(selector).first
-                    if await captcha_box.is_visible(timeout=2000):
-                        box = await captcha_box.bounding_box()
-                        if box:
-                            await page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-                        else:
-                            await captcha_box.click(force=True)
-                        captcha_clicked = True
-                        break
-                except:
-                    continue
-            if captcha_clicked:
-                break
-        if captcha_clicked:
-            break
-        await page.wait_for_timeout(5000)
+    # Use the new hCaptcha handler
+    print(f"  Tab {idx:02d}: 🤖 Running hCaptcha handler...")
+    captcha_clicked = await handle_hcaptcha(page, idx=idx, max_wait=60)
 
     if not captcha_clicked:
-        try:
-            captcha_box = page.locator('iframe[src*="recaptcha"], iframe[title*="reCAPTCHA"], iframe[title*="captcha"]').first
-            if await captcha_box.is_visible(timeout=2000):
-                box = await captcha_box.bounding_box()
-                if box:
-                    await page.mouse.click(box["x"] + 35, box["y"] + 35)
-                else:
-                    await captcha_box.click(force=True)
-                captcha_clicked = True
-        except:
-            pass
+        # Fallback to old reCAPTCHA logic if hCaptcha handler didn't find anything
+        print(f"  Tab {idx:02d}: ⚠️ hCaptcha handler returned False, trying reCAPTCHA fallback...")
+        for attempt in range(1, 4):
+            for frame in page.frames:
+                for selector in ['#recaptcha-anchor', '.recaptcha-checkbox-border', '[role="checkbox"]', '#checkbox', 'input[type="checkbox"]']:
+                    try:
+                        captcha_box = frame.locator(selector).first
+                        if await captcha_box.is_visible(timeout=2000):
+                            box = await captcha_box.bounding_box()
+                            if box:
+                                await page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                            else:
+                                await captcha_box.click(force=True)
+                            captcha_clicked = True
+                            break
+                    except:
+                        continue
+            if captcha_clicked:
+                break
+            await page.wait_for_timeout(5000)
+
+        if not captcha_clicked:
+            try:
+                captcha_box = page.locator('iframe[src*="recaptcha"], iframe[title*="reCAPTCHA"], iframe[title*="captcha"]').first
+                if await captcha_box.is_visible(timeout=2000):
+                    box = await captcha_box.bounding_box()
+                    if box:
+                        await page.mouse.click(box["x"] + 35, box["y"] + 35)
+                    else:
+                        await captcha_box.click(force=True)
+                    captcha_clicked = True
+            except:
+                pass
 
     await page.wait_for_timeout(random.randint(15, 30) * 1000)
 

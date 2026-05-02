@@ -537,22 +537,30 @@ async def autofill_checkout_tab(page, idx, email_hint=""):
         await fill_field('input[name="billingLocality"], input[name="city"], input[autocomplete*="address-level2"], input[placeholder*="city" i]', billing_city)
         await fill_field('input[name="billingPostalCode"], input[name="postal"], input[name="zip"], input[autocomplete*="postal-code"], input[placeholder*="postal" i], input[placeholder*="zip" i]', billing_postal)
 
+        # Check and click "I agree" in two places
         try:
+            # First location: checkbox input
             agree_checkbox = page.locator('input[type="checkbox"]').nth(1)
             if await agree_checkbox.is_visible(timeout=3000):
                 if not await agree_checkbox.is_checked():
                     await agree_checkbox.click()
+                    print(f"  Tab {idx:02d}: ✅ I agree checkbox clicked (location 1)")
         except:
-            try:
-                agree_text = page.get_by_text("I agree", exact=False).first
-                if await agree_text.is_visible(timeout=2000):
-                    box = await agree_text.bounding_box()
-                    if box:
-                        await page.mouse.click(max(box["x"] - 18, 0), box["y"] + box["height"] / 2)
-                    else:
-                        await agree_text.click()
-            except:
-                pass
+            pass
+        
+        try:
+            # Second location: text "I agree"
+            agree_text = page.get_by_text("I agree", exact=False).first
+            if await agree_text.is_visible(timeout=2000):
+                box = await agree_text.bounding_box()
+                if box:
+                    await page.mouse.click(max(box["x"] - 18, 0), box["y"] + box["height"] / 2)
+                else:
+                    await agree_text.click()
+                print(f"  Tab {idx:02d}: ✅ I agree text clicked (location 2)")
+        except:
+            pass
+        
         await page.wait_for_timeout(1000)
 
         for start_selector in [
@@ -566,6 +574,62 @@ async def autofill_checkout_tab(page, idx, email_hint=""):
                 if await start_btn.is_visible(timeout=2000) and await start_btn.is_enabled():
                     await start_btn.click()
                     print(f"  Tab {idx:02d}: ✅ Start trial clicked")
+                    
+                    # Wait 10 seconds after clicking Start trial
+                    print(f"  Tab {idx:02d}: ⏳ Waiting 10 seconds...")
+                    await page.wait_for_timeout(10000)
+                    
+                    # Click on "I am not human" text
+                    human_clicked = False
+                    for human_selector in [
+                        'text="I am human"',
+                        'text="I\'m human"',
+                        'text="I am not a robot"',
+                        'text="I am not human"',
+                        '[data-testid*="human"]',
+                        '.human-check',
+                        '#human-verification',
+                    ]:
+                        try:
+                            human_btn = page.locator(human_selector).first
+                            if await human_btn.is_visible(timeout=3000):
+                                await human_btn.click()
+                                print(f"  Tab {idx:02d}: ✅ I am human clicked")
+                                human_clicked = True
+                                break
+                        except:
+                            continue
+                    
+                    if not human_clicked:
+                        # Try clicking by bounding box
+                        try:
+                            human_text = page.get_by_text("I am human", exact=False).first
+                            if await human_text.is_visible(timeout=2000):
+                                box = await human_text.bounding_box()
+                                if box:
+                                    await page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                                    print(f"  Tab {idx:02d}: ✅ I am human clicked (mouse)")
+                                    human_clicked = True
+                        except:
+                            pass
+                    
+                    # Wait 30 seconds after clicking I am human
+                    print(f"  Tab {idx:02d}: ⏳ Waiting 30 seconds...")
+                    await page.wait_for_timeout(30000)
+                    
+                    # Check if link changed and new page has "welcome back"
+                    try:
+                        current_url = page.url.lower()
+                        page_text = (await page.locator("body").inner_text(timeout=5000)).lower()
+                        
+                        if "welcome back" in current_url or "welcome back" in page_text:
+                            print(f"  Tab {idx:02d}: ✅ Welcome back found - Done!")
+                            return  # Exit early as task is complete
+                        else:
+                            print(f"  Tab {idx:02d}: ℹ️ No welcome back yet, continuing...")
+                    except:
+                        pass
+                    
                     break
             except:
                 continue

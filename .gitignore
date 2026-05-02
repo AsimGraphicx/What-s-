@@ -5,23 +5,13 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Environment
-.venv/
-venv/
-.env
-.env.local
-*.env.*
-
 # Logs and temp files
 *.log
 *.tmp
+*.swp
 
-# Editors
-.vscode/
-.idea/
-
-# Dependencies
-node_modules/
-.mypy_cache/
-.pytest_cache/
+# Environment
+.env
+.env.local
+*.env.*
 ```

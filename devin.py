@@ -575,96 +575,97 @@ async def autofill_checkout_tab(page, idx, email_hint=""):
                     await start_btn.click()
                     print(f"  Tab {idx:02d}: ✅ Start trial clicked")
                     
-                    # Wait 10 seconds after clicking Start trial
-                    print(f"  Tab {idx:02d}: ⏳ Waiting 10 seconds...")
-                    await page.wait_for_timeout(10000)
+                    # Wait until "processing" text appears on the button (confirms click worked)
+                    print(f"  Tab {idx:02d}: ⏳ Waiting for processing state...")
+                    max_wait_processing = 15000  # Max 15 seconds
+                    check_interval = 500
+                    elapsed = 0
+                    processing_detected = False
                     
-                    # Click on "I am not human" text with humanized random delay
+                    while elapsed < max_wait_processing:
+                        await page.wait_for_timeout(check_interval)
+                        elapsed += check_interval
+                        
+                        # Check if button now shows "processing" or is disabled
+                        try:
+                            btn_text = await start_btn.inner_text(timeout=1000)
+                            btn_disabled = await start_btn.is_disabled()
+                            if "processing" in btn_text.lower() or btn_disabled:
+                                processing_detected = True
+                                print(f"  Tab {idx:02d}: ✅ Processing state detected")
+                                break
+                        except:
+                            pass
+                    
+                    # Wait 10 seconds after processing starts
+                    if processing_detected:
+                        print(f"  Tab {idx:02d}: ⏳ Waiting 10 seconds after processing started...")
+                        await page.wait_for_timeout(10000)
+                    
+                    # Click on captcha popup checkbox with humanized random delay
                     human_clicked = False
                     
                     # Random delay before clicking (human-like behavior)
                     await page.wait_for_timeout(random.randint(2000, 5000))
                     
-                    for human_selector in [
-                        'text="I am human"',
-                        'text="I\'m human"',
-                        'text="I am not a robot"',
-                        'text="I am not human"',
-                        '[data-testid*="human"]',
-                        '.human-check',
-                        '#human-verification',
-                        'iframe[src*="recaptcha"]',
-                        'iframe[title*="reCAPTCHA"]',
-                        'iframe[title*="captcha"]',
-                    ]:
+                    # Look for captcha popup elements: close button, "I am human" text, checkbox
+                    for frame in page.frames:
                         try:
-                            human_btn = page.locator(human_selector).first
-                            if await human_btn.is_visible(timeout=3000):
-                                # Human-like mouse movement and click
-                                box = await human_btn.bounding_box()
-                                if box:
-                                    # Add small random offset for human-like click
-                                    offset_x = random.uniform(-5, 5)
-                                    offset_y = random.uniform(-5, 5)
-                                    await page.mouse.move(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y, steps=random.randint(10, 30))
-                                    await page.wait_for_timeout(random.randint(100, 300))
-                                    await page.mouse.click(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y)
-                                else:
-                                    await human_btn.click()
-                                print(f"  Tab {idx:02d}: ✅ I am human clicked")
-                                human_clicked = True
+                            # First try to find the checkbox inside iframe
+                            for captcha_selector in ['#recaptcha-anchor', '.recaptcha-checkbox-border', '[role="checkbox"]', '#checkbox', 'input[type="checkbox"]']:
+                                try:
+                                    captcha_box = frame.locator(captcha_selector).first
+                                    if await captcha_box.is_visible(timeout=2000):
+                                        box = await captcha_box.bounding_box()
+                                        if box:
+                                            offset_x = random.uniform(-3, 3)
+                                            offset_y = random.uniform(-3, 3)
+                                            await page.mouse.move(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y, steps=random.randint(5, 15))
+                                            await page.wait_for_timeout(random.randint(100, 200))
+                                            await page.mouse.click(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y)
+                                        else:
+                                            await captcha_box.click(force=True)
+                                        print(f"  Tab {idx:02d}: ✅ Captcha checkbox clicked in popup")
+                                        human_clicked = True
+                                        break
+                                except:
+                                    continue
+                            if human_clicked:
                                 break
                         except:
                             continue
                     
                     if not human_clicked:
-                        # Try clicking by bounding box with human-like behavior
-                        try:
-                            human_text = page.get_by_text("I am human", exact=False).first
-                            if await human_text.is_visible(timeout=2000):
-                                box = await human_text.bounding_box()
-                                if box:
-                                    offset_x = random.uniform(-5, 5)
-                                    offset_y = random.uniform(-5, 5)
-                                    await page.mouse.move(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y, steps=random.randint(10, 30))
-                                    await page.wait_for_timeout(random.randint(100, 300))
-                                    await page.mouse.click(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y)
-                                    print(f"  Tab {idx:02d}: ✅ I am human clicked (mouse)")
+                        # Try clicking "I am human" text in popup
+                        for human_selector in [
+                            'text="I am human"',
+                            'text="I\'m human"',
+                            'text="I am not a robot"',
+                            'text="Verify you are human"',
+                            '[data-testid*="human"]',
+                            '.human-check',
+                        ]:
+                            try:
+                                human_btn = page.locator(human_selector).first
+                                if await human_btn.is_visible(timeout=3000):
+                                    box = await human_btn.bounding_box()
+                                    if box:
+                                        offset_x = random.uniform(-5, 5)
+                                        offset_y = random.uniform(-5, 5)
+                                        await page.mouse.move(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y, steps=random.randint(10, 30))
+                                        await page.wait_for_timeout(random.randint(100, 300))
+                                        await page.mouse.click(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y)
+                                    else:
+                                        await human_btn.click()
+                                    print(f"  Tab {idx:02d}: ✅ I am human clicked")
                                     human_clicked = True
-                        except:
-                            pass
-                    
-                    if not human_clicked:
-                        # Check for captcha popup/iframe and click it
-                        try:
-                            for frame in page.frames:
-                                for captcha_selector in ['#recaptcha-anchor', '.recaptcha-checkbox-border', '[role="checkbox"]', '#checkbox', 'input[type="checkbox"]']:
-                                    try:
-                                        captcha_box = frame.locator(captcha_selector).first
-                                        if await captcha_box.is_visible(timeout=2000):
-                                            box = await captcha_box.bounding_box()
-                                            if box:
-                                                offset_x = random.uniform(-3, 3)
-                                                offset_y = random.uniform(-3, 3)
-                                                await page.mouse.move(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y, steps=random.randint(5, 15))
-                                                await page.wait_for_timeout(random.randint(100, 200))
-                                                await page.mouse.click(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y)
-                                            else:
-                                                await captcha_box.click(force=True)
-                                            print(f"  Tab {idx:02d}: ✅ Captcha checkbox clicked")
-                                            human_clicked = True
-                                            break
-                                    except:
-                                        continue
-                                if human_clicked:
                                     break
-                        except:
-                            pass
+                            except:
+                                continue
                     
-                    # If still not clicked, try one more fallback - direct click on any visible checkbox
                     if not human_clicked:
+                        # Fallback: look for any visible checkbox in popup
                         try:
-                            # Look for any checkbox that might be the human verification
                             checkboxes = page.locator('input[type="checkbox"]')
                             count = await checkboxes.count()
                             for i in range(count):
@@ -688,7 +689,7 @@ async def autofill_checkout_tab(page, idx, email_hint=""):
                         except:
                             pass
                     
-                    # Wait with variable time (no fixed timer) - check for completion dynamically
+                    # Wait for new window/page to open with "welcome back" or success indicators
                     print(f"  Tab {idx:02d}: ⏳ Monitoring for completion...")
                     max_wait_time = 60000  # Maximum 60 seconds
                     check_interval = 2000  # Check every 2 seconds
@@ -721,6 +722,13 @@ async def autofill_checkout_tab(page, idx, email_hint=""):
                                (welcome_back_present and continue_options_present) or \
                                any(indicator in current_url or indicator in page_text for indicator in completion_indicators):
                                 print(f"  Tab {idx:02d}: ✅ Checkout completed! Login page detected = Success!")
+                                
+                                # Wait 10 seconds then navigate to new URL in same window
+                                print(f"  Tab {idx:02d}: ⏳ Waiting 10 seconds before navigating...")
+                                await page.wait_for_timeout(10000)
+                                
+                                # Navigate to new URL in same window (user will handle manually)
+                                # Just keep the window open for user
                                 return  # Exit early as task is complete
                         except:
                             pass

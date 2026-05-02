@@ -1,41 +1,72 @@
-```gitignore
-# Compiled Python files
+```
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Environment files
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# Logs
+*.log
+
+# Environment variables
 .env
 .env.local
 *.env.*
 
-# Logs and temporary files
-*.log
-*.tmp
-
-# Editors
-.vscode/
-.idea/
-
-# Dependencies
-.venv/
-venv/
-node_modules/
-
-# Build artifacts
-dist/
-build/
-target/
-
 # Coverage reports
-coverage/
-htmlcov/
 .coverage
+htmlcov/
+.coverage.*
+.coverage.xml
+coverage.xml
 
-# Python cache
-.mypy_cache/
+# Distribution / packaging
+.Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing
 .pytest_cache/
+.mypy_cache/
 
-# System files
-.DS_Store
-Thumbs.db
+# Project-specific
+hcaptcha-challenger/__pycache__/
+hcaptcha-challenger/*.py[cod]
+hcaptcha-challenger/*$py.class
+hcaptcha-challenger/build/
+hcaptcha-challenger/dist/
+hcaptcha-challenger/*.egg-info/
+hcaptcha-challenger/.venv/
+hcaptcha-challenger/venv/
 ```

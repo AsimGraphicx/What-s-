@@ -4,8 +4,27 @@ import os
 import random
 import subprocess
 import time
+import sys
 from datetime import datetime, timedelta
 from playwright.async_api import async_playwright
+
+# ═══════════════════════════════════════════════════════════════
+# INJECT HCAPTCHA-CHALLENGER INTO PYTHON PATH
+# ═══════════════════════════════════════════════════════════════
+HCAPTCHA_CHALLENGER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hcaptcha-challenger", "src")
+if HCAPTCHA_CHALLENGER_PATH not in sys.path:
+    sys.path.insert(0, HCAPTCHA_CHALLENGER_PATH)
+
+# Now import hcaptcha_challenger modules
+try:
+    from hcaptcha_challenger import AgentV, AgentConfig, CaptchaResponse
+    from hcaptcha_challenger.models import ChallengeSignal
+    from hcaptcha_challenger.utils import SiteKey
+    HCAPTCHA_CHALLENGER_AVAILABLE = True
+    print("✅ hCaptcha-Challenger loaded successfully")
+except Exception as e:
+    print(f"⚠️ hCaptcha-Challenger not available: {e}")
+    HCAPTCHA_CHALLENGER_AVAILABLE = False
 
 # ═══════════════════════════════════════════════════════════════
 # CONFIG
@@ -22,6 +41,9 @@ IN_PROGRESS_CHECKOUTS_FILE = "in_progress_checkouts.txt"
 COMPLETED_CHECKOUTS_FILE = "completed_checkouts.txt"
 REVIEW_CHECKOUTS_FILE = "review_checkouts.txt"
 FAILED_CHECKOUTS_FILE = "failed_checkouts.txt"
+
+# hCaptcha Challenger Config
+HCAPTCHA_API_KEY = os.environ.get("GEMINI_API_KEY", "")  # Required for AI-powered solving
 
 # ═══════════════════════════════════════════════════════════════
 # FORMATTING FUNCTIONS
@@ -397,11 +419,73 @@ BATCH_CARD = {"number": "4549240640456853", "expiry": "01/31", "cvc": "127"}
 BATCH_NAME = "Turab Coder"
 
 # ═══════════════════════════════════════════════════════════════
-# hCAPTCHA HANDLER
+# hCAPTCHA HANDLER - ENHANCED WITH HCAPTCHA-CHALLENGER
 # ═══════════════════════════════════════════════════════════════
-async def handle_hcaptcha(page, idx=0, max_wait=60):
+async def handle_hcaptcha_challenger(page, idx=0, max_wait=120):
     """
-    Robust hCaptcha handler with multiple strategies
+    AI-powered hCaptcha solver using hcaptcha-challenger library.
+    Uses Gemini AI to solve image-based challenges automatically.
+    
+    Args:
+        page: Playwright page object
+        idx: Tab index for logging
+        max_wait: Maximum time to wait for captcha solving (seconds)
+    
+    Returns:
+        tuple: (success: bool, used_ai: bool)
+    """
+    if not HCAPTCHA_CHALLENGER_AVAILABLE:
+        return False, False
+    
+    if not HCAPTCHA_API_KEY:
+        print(f"  Tab {idx:02d}: ⚠️ GEMINI_API_KEY not set, skipping AI solver")
+        return False, False
+    
+    try:
+        print(f"  Tab {idx:02d}: 🤖 Initializing AI-powered hCaptcha solver...")
+        
+        # Initialize AgentConfig with API key
+        agent_config = AgentConfig(
+            GEMINI_API_KEY=HCAPTCHA_API_KEY,
+            EXECUTION_TIMEOUT=max_wait,
+            RESPONSE_TIMEOUT=30,
+            RETRY_ON_FAILURE=True,
+            enable_challenger_debug=False,
+        )
+        
+        # Initialize AgentV
+        agent = AgentV(page=page, agent_config=agent_config)
+        
+        # Click the checkbox to trigger the challenge
+        print(f"  Tab {idx:02d}: ⏳ Triggering hCaptcha challenge...")
+        await agent.robotic_arm.click_checkbox()
+        
+        # Wait for challenge to complete
+        print(f"  Tab {idx:02d}: 🧩 Solving hCaptcha challenge with AI...")
+        result = await agent.wait_for_challenge()
+        
+        if result == ChallengeSignal.SUCCESS:
+            print(f"  Tab {idx:02d}: ✅ hCaptcha solved by AI!")
+            return True, True
+        elif result == ChallengeSignal.FAILURE:
+            print(f"  Tab {idx:02d}: ❌ AI failed to solve hCaptcha")
+            return False, True
+        elif result == ChallengeSignal.EXECUTION_TIMEOUT:
+            print(f"  Tab {idx:02d}: ⏱️ AI solver timed out")
+            return False, True
+        else:
+            print(f"  Tab {idx:02d}: ⚠️ Unknown challenge result: {result}")
+            return False, True
+            
+    except Exception as e:
+        print(f"  Tab {idx:02d}: ❌ AI solver error: {e}")
+        return False, True
+
+
+async def handle_hcaptcha_manual(page, idx=0, max_wait=60):
+    """
+    Manual hCaptcha handler with multiple fallback strategies.
+    Used when AI solver is not available or fails.
     
     Args:
         page: Playwright page object
@@ -535,6 +619,29 @@ async def handle_hcaptcha(page, idx=0, max_wait=60):
             print(f"  Tab {idx:02d}: ⚠️ hCaptcha verification timeout")
     
     return captcha_handled
+
+
+async def handle_hcaptcha(page, idx=0, max_wait=120):
+    """
+    Smart hCaptcha handler that tries AI solver first, then falls back to manual method.
+    
+    Args:
+        page: Playwright page object
+        idx: Tab index for logging
+        max_wait: Maximum time to wait for captcha (seconds)
+    
+    Returns:
+        bool: True if captcha was handled successfully
+    """
+    # Try AI-powered solver first
+    if HCAPTCHA_CHALLENGER_AVAILABLE and HCAPTCHA_API_KEY:
+        success, used_ai = await handle_hcaptcha_challenger(page, idx, max_wait)
+        if success:
+            return True
+    
+    # Fallback to manual method
+    print(f"  Tab {idx:02d}: 🔄 Falling back to manual hCaptcha handling...")
+    return await handle_hcaptcha_manual(page, idx, max_wait)
 
 
 # ═══════════════════════════════════════════════════════════════

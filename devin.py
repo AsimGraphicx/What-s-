@@ -661,6 +661,33 @@ async def autofill_checkout_tab(page, idx, email_hint=""):
                         except:
                             pass
                     
+                    # If still not clicked, try one more fallback - direct click on any visible checkbox
+                    if not human_clicked:
+                        try:
+                            # Look for any checkbox that might be the human verification
+                            checkboxes = page.locator('input[type="checkbox"]')
+                            count = await checkboxes.count()
+                            for i in range(count):
+                                try:
+                                    cb = checkboxes.nth(i)
+                                    if await cb.is_visible(timeout=1000):
+                                        box = await cb.bounding_box()
+                                        if box:
+                                            offset_x = random.uniform(-2, 2)
+                                            offset_y = random.uniform(-2, 2)
+                                            await page.mouse.move(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y, steps=random.randint(5, 10))
+                                            await page.wait_for_timeout(random.randint(50, 150))
+                                            await page.mouse.click(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y)
+                                        else:
+                                            await cb.click(force=True)
+                                        print(f"  Tab {idx:02d}: ✅ Fallback checkbox clicked")
+                                        human_clicked = True
+                                        break
+                                except:
+                                    continue
+                        except:
+                            pass
+                    
                     # Wait with variable time (no fixed timer) - check for completion dynamically
                     print(f"  Tab {idx:02d}: ⏳ Monitoring for completion...")
                     max_wait_time = 60000  # Maximum 60 seconds
@@ -1041,11 +1068,11 @@ async def run_account(browser, task_id, sem):
             except:
                 pass
             account.update_step(6)
-            await signup_page.wait_for_timeout(random.randint(4000, 7000))
             try:
+                await signup_page.wait_for_timeout(random.randint(4000, 7000))
                 await signup_page.wait_for_load_state("networkidle", timeout=15000)
             except:
-                await signup_page.wait_for_timeout(random.randint(4000, 6000))
+                pass
             try:
                 card_tab = signup_page.locator('button:has-text("Card"), [data-testid*="CARD"], div[role="tab"]:has-text("Card"), label:has-text("Card")').first
                 if await card_tab.is_visible(timeout=5000):
@@ -1055,8 +1082,11 @@ async def run_account(browser, task_id, sem):
                 pass
             checkout_url = signup_page.url
             if "checkout.stripe.com" not in checkout_url and "pay" not in checkout_url.lower():
-                await signup_page.wait_for_timeout(random.randint(2000, 4000))
-                checkout_url = signup_page.url
+                try:
+                    await signup_page.wait_for_timeout(random.randint(2000, 4000))
+                    checkout_url = signup_page.url
+                except:
+                    pass
             await append_checkout_log(email_address, checkout_url)
             print(f"✅ Checkout queued for manual batch: {email_address} | {checkout_url}")
             account.mark_completed()
@@ -1066,7 +1096,10 @@ async def run_account(browser, task_id, sem):
                 pass
         except Exception as e:
             account.mark_failed(str(e))
-            await append_failed_log(email_address, str(e))
+            try:
+                await append_failed_log(email_address, "N/A", str(e))
+            except:
+                pass
         finally:
             if ctx:
                 try:

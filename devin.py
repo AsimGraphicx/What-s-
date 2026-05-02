@@ -579,8 +579,12 @@ async def autofill_checkout_tab(page, idx, email_hint=""):
                     print(f"  Tab {idx:02d}: ⏳ Waiting 10 seconds...")
                     await page.wait_for_timeout(10000)
                     
-                    # Click on "I am not human" text
+                    # Click on "I am not human" text with humanized random delay
                     human_clicked = False
+                    
+                    # Random delay before clicking (human-like behavior)
+                    await page.wait_for_timeout(random.randint(2000, 5000))
+                    
                     for human_selector in [
                         'text="I am human"',
                         'text="I\'m human"',
@@ -589,11 +593,24 @@ async def autofill_checkout_tab(page, idx, email_hint=""):
                         '[data-testid*="human"]',
                         '.human-check',
                         '#human-verification',
+                        'iframe[src*="recaptcha"]',
+                        'iframe[title*="reCAPTCHA"]',
+                        'iframe[title*="captcha"]',
                     ]:
                         try:
                             human_btn = page.locator(human_selector).first
                             if await human_btn.is_visible(timeout=3000):
-                                await human_btn.click()
+                                # Human-like mouse movement and click
+                                box = await human_btn.bounding_box()
+                                if box:
+                                    # Add small random offset for human-like click
+                                    offset_x = random.uniform(-5, 5)
+                                    offset_y = random.uniform(-5, 5)
+                                    await page.mouse.move(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y, steps=random.randint(10, 30))
+                                    await page.wait_for_timeout(random.randint(100, 300))
+                                    await page.mouse.click(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y)
+                                else:
+                                    await human_btn.click()
                                 print(f"  Tab {idx:02d}: ✅ I am human clicked")
                                 human_clicked = True
                                 break
@@ -601,34 +618,85 @@ async def autofill_checkout_tab(page, idx, email_hint=""):
                             continue
                     
                     if not human_clicked:
-                        # Try clicking by bounding box
+                        # Try clicking by bounding box with human-like behavior
                         try:
                             human_text = page.get_by_text("I am human", exact=False).first
                             if await human_text.is_visible(timeout=2000):
                                 box = await human_text.bounding_box()
                                 if box:
-                                    await page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                                    offset_x = random.uniform(-5, 5)
+                                    offset_y = random.uniform(-5, 5)
+                                    await page.mouse.move(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y, steps=random.randint(10, 30))
+                                    await page.wait_for_timeout(random.randint(100, 300))
+                                    await page.mouse.click(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y)
                                     print(f"  Tab {idx:02d}: ✅ I am human clicked (mouse)")
                                     human_clicked = True
                         except:
                             pass
                     
-                    # Wait 30 seconds after clicking I am human
-                    print(f"  Tab {idx:02d}: ⏳ Waiting 30 seconds...")
-                    await page.wait_for_timeout(30000)
+                    if not human_clicked:
+                        # Check for captcha popup/iframe and click it
+                        try:
+                            for frame in page.frames:
+                                for captcha_selector in ['#recaptcha-anchor', '.recaptcha-checkbox-border', '[role="checkbox"]', '#checkbox', 'input[type="checkbox"]']:
+                                    try:
+                                        captcha_box = frame.locator(captcha_selector).first
+                                        if await captcha_box.is_visible(timeout=2000):
+                                            box = await captcha_box.bounding_box()
+                                            if box:
+                                                offset_x = random.uniform(-3, 3)
+                                                offset_y = random.uniform(-3, 3)
+                                                await page.mouse.move(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y, steps=random.randint(5, 15))
+                                                await page.wait_for_timeout(random.randint(100, 200))
+                                                await page.mouse.click(box["x"] + box["width"] / 2 + offset_x, box["y"] + box["height"] / 2 + offset_y)
+                                            else:
+                                                await captcha_box.click(force=True)
+                                            print(f"  Tab {idx:02d}: ✅ Captcha checkbox clicked")
+                                            human_clicked = True
+                                            break
+                                    except:
+                                        continue
+                                if human_clicked:
+                                    break
+                        except:
+                            pass
                     
-                    # Check if link changed and new page has "welcome back"
-                    try:
-                        current_url = page.url.lower()
-                        page_text = (await page.locator("body").inner_text(timeout=5000)).lower()
+                    # Wait with variable time (no fixed timer) - check for completion dynamically
+                    print(f"  Tab {idx:02d}: ⏳ Monitoring for completion...")
+                    max_wait_time = 60000  # Maximum 60 seconds
+                    check_interval = 2000  # Check every 2 seconds
+                    elapsed_time = 0
+                    
+                    while elapsed_time < max_wait_time:
+                        await page.wait_for_timeout(check_interval)
+                        elapsed_time += check_interval
                         
-                        if "welcome back" in current_url or "welcome back" in page_text:
-                            print(f"  Tab {idx:02d}: ✅ Welcome back found - Done!")
-                            return  # Exit early as task is complete
-                        else:
-                            print(f"  Tab {idx:02d}: ℹ️ No welcome back yet, continuing...")
-                    except:
-                        pass
+                        # Check if link changed and new page has "welcome back" or checkout done indicators
+                        try:
+                            current_url = page.url.lower()
+                            page_text = (await page.locator("body").inner_text(timeout=3000)).lower()
+                            
+                            # Check for completion indicators including login page after checkout
+                            completion_indicators = [
+                                "welcome back", "success", "complete", "completed", "thank you", 
+                                "payment successful", "subscription active", "already paid", 
+                                "checkout done", "order confirmed", "log in to your account",
+                                "continue with github", "continue with google", "continue with windsurf",
+                                "email address", "don't have an account", "sign up"
+                            ]
+                            
+                            # Special check: if "welcome back" AND "log in to your account" appear together, it's checkout success
+                            welcome_back_present = "welcome back" in page_text
+                            login_page_present = "log in to your account" in page_text
+                            continue_options_present = any(opt in page_text for opt in ["continue with github", "continue with google", "continue with windsurf"])
+                            
+                            if (welcome_back_present and login_page_present) or \
+                               (welcome_back_present and continue_options_present) or \
+                               any(indicator in current_url or indicator in page_text for indicator in completion_indicators):
+                                print(f"  Tab {idx:02d}: ✅ Checkout completed! Login page detected = Success!")
+                                return  # Exit early as task is complete
+                        except:
+                            pass
                     
                     break
             except:
